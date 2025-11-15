@@ -1,0 +1,273 @@
+import tkinter as tk
+from tkinter import ttk, messagebox, simpledialog
+import sqlite3
+import sys
+import datetime
+from tkcalendar import DateEntry
+import win32print
+import win32ui
+from PIL import Image, ImageTk
+from tkinter import *
+
+
+
+class InventarioApp:
+    def __init__(self, root):
+        
+        self.root = root
+        self.root.title("Sistema de Inventario")
+      
+
+        screen_width = root.winfo_screenwidth()
+        screen_height = root.winfo_screenheight()
+        ancho = int(screen_width * 0.9)
+        alto = int(screen_height * 0.9)
+        self.root.geometry(f"{ancho}x{alto}")
+        self.root.configure(bg="#FFFFFF")
+       
+        try:
+           self.bg_image = Image.open("logoproyecto.png")
+           self.bg_image = self.bg_image.resize((ancho, alto))
+           self.bg_photo = ImageTk.PhotoImage(self.bg_image)
+           self.bg_label = tk.Label(self.root, image=self.bg_photo)
+           self.bg_label.place(x=0, y=0, relwidth=1, relheight=1)
+           self.bg_label.lower()
+        except Exception as e:
+           
+
+
+        self.conn = sqlite3.connect("inventario.db")
+        self.cursor = self.conn.cursor()
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS productos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nombre TEXT UNIQUE,
+                cantidad INTEGER,
+                precio_compra REAL,
+                precio_venta REAL,
+                alerta_minima INTEGER DEFAULT 0
+            )
+        """)
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ventas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nombre TEXT,
+                cantidad INTEGER,
+                total REAL,
+                fecha TEXT
+            )
+        """)
+        self.conn.commit()
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS clientes_regulares (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nombre TEXT NOT NULL,
+                cedula TEXT,
+                telefono TEXT,            
+                direccion TEXT
+            )
+        """)
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ventas_credito (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cliente_id INTEGER,
+                descripcion TEXT,
+                monto_total REAL,
+                saldo_restante REAL,
+                fecha TEXT,
+                FOREIGN KEY (cliente_id) REFERENCES clientes_regulares(id)
+            )
+        """)
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS pagos_credito (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                venta_id INTEGER,
+                monto_pagado REAL,
+                fecha_pago TEXT,
+                FOREIGN KEY (venta_id) REFERENCES ventas_credito(id)
+            )
+        """)
+
+        self.carrito = []
+
+        frame_principal = tk.Frame(root, bg="white", bd=2, relief=tk.RIDGE)
+        frame_principal.pack(fill="both", expand=True, padx=20, pady=20)
+
+        frame_agregar = tk.LabelFrame(frame_principal, text="Agregar / Editar producto", bg="white", font=("Arial", 14, "bold"))
+        frame_agregar.pack(fill="x", padx=20, pady=10)
+
+        campos = [
+            ("Nombre:", "nombre_entry", 20),
+            ("Cantidad:", "cantidad_entry", 10),
+            ("Compra:", "compra_entry", 15),
+            ("Venta:", "precio_entry", 15),
+            ("Alerta minima:", "alerta_entry", 10),
+        ]
+        for i, (texto, attr, ancho) in enumerate(campos):
+            tk.Label(frame_agregar, text=texto, bg="white", font=("Arial", 13)).grid(row=0, column=i * 2, padx=8, pady=8, sticky="e")
+            entry = tk.Entry(frame_agregar, font=("Arial", 13), width=ancho)
+            entry.grid(row=0, column=i * 2 + 1, padx=8, pady=8)
+            setattr(self, attr, entry)
+
+        botones = [
+            ("Agregar", "#4CAF50", self.agregar_producto),
+            ("Eliminar", "#F44336", self.eliminar_producto),
+            ("Cargar", "#4CAF50", self.cargar_producto),
+            ("Actualizar", "#4CAF50", self.actualizar_producto),
+            ("Historial", "#4CAF50", self.ver_historial),
+            ("Devolver", "#4CAF50", self.devolver_producto),
+            ("Agotados", "#EB9524", self.ver_agotados),
+        ]
+
+        frame_botones = tk.Frame(frame_agregar, bg="white")
+        frame_botones.grid(row=1, column=0, columnspan=10, pady=10, sticky="w")
+
+        for txt, color, cmd in botones:
+            tk.Button(frame_botones, text=txt, bg=color, fg="white", font=("Arial", 13, "bold"), command=cmd, width=12).pack(side="left", padx=5, pady=5)
+
+        frame_buscar = tk.LabelFrame(frame_principal, text="Buscar producto", bg="white", font=("Arial", 14, "bold"))
+        frame_buscar.pack(fill="x", padx=20, pady=1)
+
+        self.barra_busqueda = tk.Entry(frame_buscar, font=("Arial", 13), width=40)
+        self.barra_busqueda.pack(anchor="w", padx=10, pady=5)
+        self.barra_busqueda.bind("<KeyRelease>", self.buscar_producto)
+
+        
+        
+        
+        
+        
+        
+        
+        frame_lista = tk.LabelFrame(frame_principal, text="Lista de productos", bg="white", font=("Arial", 18, "bold"), height=200)
+        frame_lista.pack(fill="x", padx=20, pady=10)
+        frame_lista.pack_propagate(False)
+
+        columnas = ("Nombre", "Cantidad", "Compra", "Venta")
+
+        estilo = ttk.Style()
+        estilo.configure("Treeview", font=("Arial", 10), rowheight=16)
+        estilo.configure("Treeview.Heading", font=("Arial", 10, "bold"))
+
+        self.lista_productos = ttk.Treeview(frame_lista, columns=columnas, show="headings", height=6)
+        for col in columnas:
+            self.lista_productos.heading(col, text=col)
+            self.lista_productos.column(col, anchor="center")
+            self.lista_productos.pack(fill="both", padx=10, pady=1)
+
+
+
+       
+       
+       
+       
+       
+       
+       
+       
+        estilo = ttk.Style()
+        estilo.configure("Treeview", font=("Arial", 16), rowheight=25)
+        estilo.configure("Treeview.Heading", font=("Arial", 14, "bold"))
+        estilo.map("Treeview", background=[("selected", "#24BAFF")])
+
+        frame_venta = tk.LabelFrame(frame_principal, text="Vender producto", bg="white", font=("Arial", 14, "bold"))
+        frame_venta.pack(fill="x", padx=20, pady=1)
+        tk.Label(frame_venta, text="Cantidad a vender:", bg="white", font=("Arial", 13)).pack(side="left", padx=10)
+        self.cantidad_vender_entry = tk.Entry(frame_venta, font=("Arial", 13), width=10)
+        self.cantidad_vender_entry.pack(side="left", padx=10)
+        tk.Button(frame_venta, text="Anadir al carrito", bg="#4CAF50", fg="white", font=("Arial", 13, "bold"), command=self.agregar_al_carrito).pack(side="left", padx=10)
+        tk.Button(frame_venta, text="Finalizar venta", bg="#4CAF50", fg="white", font=("Arial", 13, "bold"), command=self.finalizar_venta).pack(side="left", padx=10)
+        tk.Button(frame_venta, text="Cancelar venta", bg="#E53935", fg="white", font=("Arial", 13, "bold"), command=self.cancelar_venta).pack(side="left", padx=10)
+                        
+        frame_carrito_container = tk.Frame(frame_principal, bg="white")
+        frame_carrito_container.pack(anchor="w", padx=20, pady=5)
+        frame_carrito_container.configure(width=800)
+     
+
+        
+
+
+        # Contenedor del carrito ajustado justo debajo de "Vender producto"
+        frame_carrito_container = tk.Frame(frame_principal, bg="white")
+        frame_carrito_container.pack(anchor="nw", padx=20, pady=(0, 0))# Menor espacio arriba                                                                 
+        
+        frame_carrito = tk.LabelFrame(frame_carrito_container, text="Carrito", bg="white", font=("Arial", 14, "bold"))
+        frame_carrito.pack()
+
+        frame_tabla_y_botones = tk.Frame(frame_carrito, bg="white")
+        frame_tabla_y_botones.pack(fill="x", padx=10, pady=1)
+
+        columnas_carrito = ("Producto", "Cantidad", "Precio", "Total")
+        self.tabla_carrito = ttk.Treeview(frame_tabla_y_botones, columns=columnas_carrito, show="headings", height=5)
+
+        self.tabla_carrito.heading("Producto", text="Producto")
+        self.tabla_carrito.column("Producto", width=240, anchor="center")
+
+        self.tabla_carrito.heading("Cantidad", text="Cant")
+        self.tabla_carrito.column("Cantidad", width=70, anchor="center")
+
+        self.tabla_carrito.heading("Precio", text="Precio")
+        self.tabla_carrito.column("Precio", width=150, anchor="center")
+
+        self.tabla_carrito.heading("Total", text="Total")
+        self.tabla_carrito.column("Total", width=150, anchor="center")
+
+        self.tabla_carrito.pack(side="left")
+
+        frame_botones_vertical = tk.Frame(frame_tabla_y_botones, bg="white")
+        frame_botones_vertical.pack(side="left", padx=10)
+
+        
+        btn_editar = tk.Button(frame_botones_vertical, text="Editar", bg="#4CAF50", fg="white",
+                               font=("Arial", 12, "bold"), width=12, command=self.editar_cantidad_carrito)
+        btn_editar.pack(pady=(0, 10))
+        btn_eliminar = tk.Button(frame_botones_vertical, text="Eliminar", bg="#f44336", fg="white",
+                                 font=("Arial", 12, "bold"), width=12, command=self.eliminar_del_carrito)
+        btn_eliminar.pack()
+
+
+        # Botones para editar y eliminar productos del carrito
+        
+
+        
+        # Subtotal ahora sí justo debajo de los botones
+        self.label_subtotal = tk.Label(frame_botones_vertical, text="Subtotal: $0.00", bg="white",
+        font=("Arial", 12, "bold"), anchor="e", justify="right")
+        self.label_subtotal.pack(pady=(15, 0))
+
+
+
+        self.actualizar_lista()
+
+    def agregar_al_carrito(self):
+        seleccionado = self.lista_productos.selection()
+        if not seleccionado:
+            return
+        nombre = self.lista_productos.item(seleccionado[0])["values"][0]
+        cantidad_vender = self.cantidad_vender_entry.get().strip()
+
+        try:
+            cantidad_vender = int(cantidad_vender)
+        except ValueError:
+            messagebox.showwarning("ERROR", "CANTIDAD INVALIDA.")
+            return
+
+        self.cursor.execute("SELECT cantidad, precio_venta FROM productos WHERE nombre=?", (nombre,))
+        actual = self.cursor.fetchone()
+        if actual is None or actual[0] < cantidad_vender:
+            messagebox.showwarning("ERROR", "NO HAY SUFICIENTE CANTIDAD.")
+            return
+
+        precio_unitario = actual[1]
+        self.carrito.append((nombre, cantidad_vender, precio_unitario))
+        self.actualizar_carrito()
+        self.cantidad_vender_entry.delete(0, tk.END)
+
+
+
+if __name__ == "__main__":
+    if not mostrar_login():
+        sys.exit(0)
+    root = tk.Tk()
+    app = InventarioApp(root)
+    root.mainloop()
